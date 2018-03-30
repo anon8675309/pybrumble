@@ -1,35 +1,81 @@
 #!/usr/bin/env python3
+from bqp import PROTOCOL_VERSION, RECORD_TYPE_ABORT
 from logging import debug, info, error, basicConfig, INFO, DEBUG
+from socket import socket
 from struct import pack, unpack
 
 
 # First, we define some utility functions so we only need to weite them once
 """
-Takes an IP in quad dotted notation and converts it to bytes
+This will set up a TCP socket, bind it to the given ip/port, and listen for
+incoming connections.  It is up to the caller to accept() incoming connections
+and recv() data from them.
+
+:param ip: IP address to bind to (can be an empty string to bind to all interfaces)
+:type ip: string
+:param port: TCP port to listen on
+:type port: int
+:returns: socket
+:rtype: `py:socket`
 """
-def str_to_ip(ip):
-    return b"".join([bytes([int(x)]) for x in ip.split(".")])
+def bind_to_lan(ip, port):
+    s = socket()
+    s.bind((ip, int(port)))
+    s.listen(1)
+    return s
 
 """
-Takes bytes representing an IP address, and returns it in quad dotted notation
+Opens a connection to the given port/IP
+
+:param ip: IP address to bind to (can be an empty string to bind to all interfaces)
+:type ip: string
+:param port: TCP port to listen on
+:type port: int
+:returns: socket
+:rtype: `py:socket`
 """
-def ip_to_str(b):
-    return ".".join([str(int(x)) for x in b])
+def open_connection(ip, port):
+    s = socket()
+    s.connect((ip, int(port)))
+    return s
 
 """
-Takes a bluetooth address in a string of colon delimited hex values and
-converts it into a binary string.
+Send a record to the peer connected via conn.
+
+:param conn: Network connection which has the peer on the other end
+:type conn: `py:socket`
+:param record_type: The type of record (KEY, CONFIRM, ABORT)
+:type record_type: int
+:param data: The data to send (e.g. the public key)
+:type data: bytes
+:returns: Number of bytes sent
+:rtype: int
 """
-def str_to_bt(bt):
-	return b"".join([bytes([int(x, 16)]) for x in bt.split(":")])
+def send_record(conn, record_type, data):
+    header = pack(">B", PROTOCOL_VERSION)
+    header += pack(">B", record_type)
+    header += pack(">H", len(data))
+    c = conn.send(header)
+    c += conn.send(data)
+    return c
 
 """
-Takes a binary string of bytes and converts them into a human readable
-colon delimitied string of hex values.
-"""
-def bt_to_str(bt):
-    return ":".join(["%0.2x" % x for x in bt])
+Read a record from a peer connected via a network socket and return the
+data read, in a nice format.  If we receive an ABORT record, an exception
+is raised here (to prevent all callers from having to do this check).
 
+:param conn: Network connection
+:type conn: `py:socket`
+"""
+def recv_record(conn):
+    header = conn.recv(4)  # record headers are always 4 bytes
+    protocol_version = unpack(">B", bytes([header[0]]))[0]
+    record_type = unpack(">B", bytes([header[1]]))[0]
+    length = unpack(">H", header[2:4])[0]
+    data = conn.recv(length)
+    if record_type == RECORD_TYPE_ABORT:
+        raise Exception("Peer sent ABORT record")
+    return [protocol_version, record_type, data]
 
 """
 This class is to represent the "End of list" marker
@@ -45,7 +91,7 @@ Extract data from a stream.
 :param data: The data to extract from
 :type data: bytestring
 :returns: Tuple of Object extracted, and remaining data
-:rtype: Tuple (object, bytestring)
+:rtype: Tuple (object, bytes)
 """
 def extract_data(data):
 	type_data = data[0] >> 4

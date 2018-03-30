@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
 from base64 import b64decode
-from bdf import extract_data, ip_to_str, bt_to_str
-from bqp import TRANSPORT_ID_BLUETOOTH, TRANSPORT_ID_LAN
+from bdf import extract_data
+from bqp import TRANSPORT_ID_BLUETOOTH, TRANSPORT_ID_LAN, ip_to_str, bt_to_str
 from binascii import hexlify
 from log_helper import setup_logging
 from logging import debug, info, error, basicConfig, INFO, DEBUG
