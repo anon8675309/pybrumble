@@ -5,10 +5,10 @@ from bdf import encode_data, extract_data, bind_to_lan, open_connection, \
 		recv_record, send_record
 from binascii import hexlify
 from bqp import PROTOCOL_VERSION, TRANSPORT_ID_BLUETOOTH, TRANSPORT_ID_LAN, \
-		RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, obtain_wifi_info, \
-		calculate_shared_secret_alice, calculate_shared_secret_bob, \
+		RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, KDF, \
+		obtain_wifi_info, calculate_shared_secret_alice, calculate_shared_secret_bob, \
 		str_to_ip, str_to_bt, gen_keypair, create_commitment, gen_scan_payload, \
-		read_keys, save_keys
+		gen_confirmation_alice, gen_confirmation_bob, read_keys, save_keys
 from log_helper import setup_logging
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from sys import stdin
@@ -74,7 +74,8 @@ if __name__ == "__main__":
 	qrcode.png(args.output, scale=8)
 
 	# Read in the other person's scan_payload from stdin
-	other_scan_payload, reamining_data = extract_data(b64decode(stdin.readline()))
+	binary_other_scan_payload = b64decode(stdin.readline())
+	other_scan_payload, reamining_data = extract_data(binary_other_scan_payload)
 	print(repr(other_scan_payload))
 
 	# Now we need to make sure we're bound on the IP/port we said we'd be listening on
@@ -100,6 +101,16 @@ if __name__ == "__main__":
 				raise Exception("Public key did not match commitment!")
 			shared_secret = calculate_shared_secret_alice(priv, pub.to_bytes(), pub_b)
 			debug("shared secret = %s" % shared_secret)
+			# Alice sends her confirmation code, and then receives and checks Bob's
+			send_record(conn, RECORD_TYPE_CONFIRM, gen_confirmation_alice(shared_secret,
+					wire_encoded_payload, pub.to_bytes(), binary_other_scan_payload, pub_b))
+			record = recv_record(conn)
+			if record[1] == RECORD_TYPE_CONFIRM:
+				generated_confirmation = gen_confirmation_bob(shared_secret,
+					wire_encoded_payload, pub.to_bytes(), binary_other_scan_payload, pub_b)
+				if record[2] != generated_confirmation:
+					send_record(conn, RECORD_TYPE_ABORT, b"")
+					raise Exception("Confirmation record did not match expeced value!")
 	else:
 		debug("Waiting for Alice to connect to us on port %s..." % port)
 		conn, remote_addr = s.accept()
@@ -113,3 +124,16 @@ if __name__ == "__main__":
 			send_record(conn, RECORD_TYPE_KEY, pub.to_bytes())
 			shared_secret = calculate_shared_secret_bob(priv, pub_a, pub.to_bytes())
 			debug("shared secret = %s" % shared_secret)
+			# Bob receives Alice's confirmation, verifies it, then sends his own
+			record = recv_record(conn)
+			if record[1] == RECORD_TYPE_CONFIRM:
+				generated_confirmation = gen_confirmation_alice(shared_secret,
+					binary_other_scan_payload, pub_a, wire_encoded_payload, pub.to_bytes())
+				if record[2] != generated_confirmation:
+					send_record(conn, RECORD_TYPE_ABORT, b"")
+					raise Exception("Confirmation record did not match expeced value!")
+			send_record(conn, RECORD_TYPE_CONFIRM, gen_confirmation_bob(shared_secret,
+					binary_other_scan_payload, pub_a, wire_encoded_payload, pub.to_bytes(), ))
+	master_key = KDF(shared_secret, [b"MASTER_KEY"])
+	shared_secret = None
+	print("master_key = %s" % hexlify(master_key).decode())

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+from logging import debug, info, error, basicConfig, INFO, DEBUG
+from struct import pack
 try:
     from pure25519.basic import bytes_to_clamped_scalar
     from pure25519.dh import dh_finish
     from pure25519.ed25519_oop import create_keypair, SigningKey, VerifyingKey
-    from pure25519.eddsa import H
+    from pure25519.eddsa import H as dhh
     from blake256.blake256 import blake_hash  # Blake2 wasn't added to hashlib in Python 3.4.3
 except ImportError as e:
     print("%s" % e)
@@ -166,7 +168,7 @@ through this hashing song and dance.  This function does that for you.
 :rtype: int
 """
 def _get_private_key_as_scalar(priv):
-    h = H(priv.sk_s[:32])  # Hash the seed (the first 32 bytes of sk_s)
+    h = dhh(priv.sk_s[:32])  # Hash the seed (the first 32 bytes of sk_s)
     a_bytes = h[:32]       # The first 32 bytes of the hash is used as the secret key
     return bytes_to_clamped_scalar(a_bytes)  # return key as a scalar
 
@@ -183,9 +185,7 @@ Calculates the shared secret for Alice based on her keypair and Bob's public key
 :rtype: bytes
 """
 def calculate_shared_secret_alice(priv, pub_a, pub_b):
-    # HASH("SHARED_SECRET", DH(pri_a, pub_b), pub_a, pub_b)
-    return blake_hash(b"SHARED_SECRET" + dh_finish(_get_private_key_as_scalar(priv), pub_b) +
-            pub_a + pub_b)
+    return HASH([b"SHARED_SECRET", DH(priv, pub_b), pub_a, pub_b])
 
 """
 Calculates the shared secret for Bob based on his keypair and Alice's public key
@@ -200,6 +200,125 @@ Calculates the shared secret for Bob based on his keypair and Alice's public key
 :rtype: bytes
 """
 def calculate_shared_secret_bob(priv, pub_a, pub_b):
-    # HASH("SHARED_SECRET", DH(pri_b, pub_a), pub_a, pub_b)
-    return blake_hash(b"SHARED_SECRET" + dh_finish(_get_private_key_as_scalar(priv), pub_a) +
-            pub_a + pub_b)
+    return HASH([b"SHARED_SECRET", DH(priv, pub_a), pub_a, pub_b])
+
+"""
+Diffie-Hellman function
+
+:param priv: Private key
+:type priv: `py:SigningKey`
+:param pub: Public key
+:type pub: bytes
+:returns: shared secret
+:rtype: bytes
+"""
+def DH(priv, pub):
+    return dh_finish(_get_private_key_as_scalar(priv), pub)
+
+"""
+Hash function
+
+:param m: Message (data) to be hashed
+:type m: bytes
+:returns: Hash of data
+:rtype: bytes
+"""
+def H(m):
+    return blake_hash(m)
+
+"""
+Multi-argument hash function.
+
+:param inputs: List of inputs to hash
+:type inputs: list of bytes
+:returns: Hash of inputes
+:rtype: bytes
+"""
+def HASH(inputs):
+    m = b""
+    for i in inputs:
+        m += pack(">I", len(i))
+        m += i
+    return H(m)
+
+"""
+Message Authentication Code (keyed hash) function.
+
+:param k: Secret key
+:type k: bytes
+:param m: Message
+:type m: bytes
+:returns: MAC of message
+:rtype: bytes
+"""
+def MAC(k, m):
+	return H(k + pack(">I", len(m)) + m)
+
+"""
+Key derivation function, takes a key and multiple inputs to generate
+new keys.
+
+:param inputs: List of inputs to hash
+:type inputs: list of bytes
+:returns: Hash of inputes
+:rtype: bytes
+"""
+def KDF(k, inputs):
+    m = b""
+    for i in inputs:
+        m += pack(">I", len(i))
+        m += i
+    return MAC(k, m)
+
+"""
+Generate a record.
+"""
+def gen_record(record_type, data, protocol_version=PROTOCOL_VERSION):
+	header = pack(">B", PROTOCOL_VERSION)
+	header += pack(">B", record_type)
+	header += pack(">H", len(data))
+	return header + data
+
+"""
+This will generate a confirmation blob to ensure the peer received the
+correct public key.
+
+:param ss: Shared secret
+:type ss: bytes
+:param q_a: Alice's scan payload
+:type q_a: bytes
+:param pub_a: Alice's public key
+:type pub_a: bytes
+:param q_b: Bob's scan payload
+:type q_b: bytes
+:param pub_b: Bob's public key
+:type pub_b: bytes
+:returns: Confirmation blob
+:rtype: bytes
+"""
+def gen_confirmation_alice(ss, q_a, pub_a, q_b, pub_b):
+	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
+	return KDF(confirmation_key, [b"CONFIRMATION_MAC",
+		q_a, pub_a, q_b, pub_b])
+
+"""
+This will generate a confirmation blob to ensure the peer received the
+correct public key.
+
+:param ss: Shared secret
+:type ss: bytes
+:param q_a: Alice's scan payload
+:type q_a: bytes
+:param pub_a: Alice's public key
+:type pub_a: bytes
+:param q_b: Bob's scan payload
+:type q_b: bytes
+:param pub_b: Bob's public key
+:type pub_b: bytes
+:returns: Confirmation blob
+:rtype: bytes
+"""
+def gen_confirmation_bob(ss, q_a, pub_a, q_b, pub_b):
+	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
+	return KDF(confirmation_key, [b"CONFIRMATION_MAC",
+		q_b, pub_b, q_a, pub_a])

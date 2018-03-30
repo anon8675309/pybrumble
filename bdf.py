@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from bqp import PROTOCOL_VERSION, RECORD_TYPE_ABORT
+from bqp import PROTOCOL_VERSION, RECORD_TYPE_ABORT, gen_record
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from socket import socket
 from struct import pack, unpack
@@ -52,12 +52,7 @@ Send a record to the peer connected via conn.
 :rtype: int
 """
 def send_record(conn, record_type, data):
-    header = pack(">B", PROTOCOL_VERSION)
-    header += pack(">B", record_type)
-    header += pack(">H", len(data))
-    c = conn.send(header)
-    c += conn.send(data)
-    return c
+	return conn.send(gen_record(record_type, data))
 
 """
 Read a record from a peer connected via a network socket and return the
