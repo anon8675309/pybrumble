@@ -51,9 +51,6 @@ If anything went wrong, you can just start over and the same keys will be used.
 This is why the keys were saved, to make it easy.  The point of this is just to
 demonstrate how the system would work.
 
-Note: Sections 4.3 (Confirmation) and 5 (Master Key Derivation) have not yet
-been implemented.
-
 # Bramble Transport Protocol
 TODO
 
