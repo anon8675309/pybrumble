@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from logging import basicConfig, DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 def setup_logging(args):
