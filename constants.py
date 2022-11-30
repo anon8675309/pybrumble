@@ -1,0 +1,10 @@
+CONFIRMATION_KEY = b"org.briarproject.bramble.keyagreement/CONFIRMATION_KEY"
+CONFIRMATION_MAC = b"org.briarproject.bramble.keyagreement/CONFIRMATION_MAC"
+SHARED_SECRET = b"org.briarproject.bramble.keyagreement/SHARED_SECRET"
+PROTOCOL_VERSION = 2;
+COMMIT_LENGTH = 16;
+TRANSPORT_ID_BLUETOOTH = 0;
+TRANSPORT_ID_LAN = 1;
+RECORD_TYPE_KEY = 0
+RECORD_TYPE_CONFIRM = 1
+RECORD_TYPE_ABORT = 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from bqp import PROTOCOL_VERSION, RECORD_TYPE_ABORT, gen_record
+from constants import PROTOCOL_VERSION, RECORD_TYPE_ABORT
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from socket import socket
 from struct import pack, unpack
@@ -38,6 +38,15 @@ def open_connection(ip, port):
     s = socket()
     s.connect((ip, int(port)))
     return s
+
+"""
+Generate a record.
+"""
+def gen_record(record_type, data, protocol_version=PROTOCOL_VERSION):
+	header = pack(">B", PROTOCOL_VERSION)
+	header += pack(">B", record_type)
+	header += pack(">H", len(data))
+	return header + data
 
 """
 Send a record to the peer connected via conn.

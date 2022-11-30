@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+from bdf import encode_data
+from constants import PROTOCOL_VERSION, COMMIT_LENGTH, TRANSPORT_ID_BLUETOOTH, \
+                      TRANSPORT_ID_LAN, CONFIRMATION_KEY, CONFIRMATION_MAC, \
+                      SHARED_SECRET
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from struct import pack
 try:
@@ -13,14 +17,6 @@ except ImportError as e:
     from sys import exit
     exit(1)
 
-
-PROTOCOL_VERSION = 2;
-COMMIT_LENGTH = 16;
-TRANSPORT_ID_BLUETOOTH = 0;
-TRANSPORT_ID_LAN = 1;
-RECORD_TYPE_KEY = 0
-RECORD_TYPE_CONFIRM = 1
-RECORD_TYPE_ABORT = 2
 
 
 """
@@ -120,12 +116,12 @@ This function returns a commitment to a public key.
 
 :param pub: The public key (use to_bytes() if you have a `py:VerifyingKey`)
 :type pub: bytes
-:returns: 16 byte commitment to publish a matching key later
+:returns: COMMIT_LENGTH byte commitment to publish a matching key later
 :rtype: bytes
 """
 def create_commitment(pub):
-	# Commitment is defined as the first 16 bytes of the hash of COMMIT + pubkey
-	return blake_hash(b"COMMIT" + pub)[0:16]
+	# Commitment is defined as the first COMMIT_LENGTH bytes of the hash of COMMIT + pubkey
+	return blake_hash(b"org.briarproject.bramble.keyagreement/COMMIT" + pub)[0:COMMIT_LENGTH]
 
 """
 This will generate a scan payload which can then be encoded according to
@@ -183,11 +179,16 @@ Calculates the shared secret for Alice based on her keypair and Bob's public key
 :type pub_a: bytes
 :param pub_b: Bob's public key
 :type pub_b: bytes
-:returns: Shared secret
+:returns: Shared secret (cooked_secret using the BQP spec's terminology)
 :rtype: bytes
 """
 def calculate_shared_secret_alice(priv, pub_a, pub_b):
-    return HASH([b"SHARED_SECRET", DH(priv, pub_b), pub_a, pub_b])
+    raw_secret = DH(priv, pub_b)
+    return HASH([SHARED_SECRET,
+                 raw_secret,
+                 encode_data(PROTOCOL_VERSION),
+                 pub_a,
+                 pub_b])
 
 """
 Calculates the shared secret for Bob based on his keypair and Alice's public key
@@ -202,7 +203,12 @@ Calculates the shared secret for Bob based on his keypair and Alice's public key
 :rtype: bytes
 """
 def calculate_shared_secret_bob(priv, pub_a, pub_b):
-    return HASH([b"SHARED_SECRET", DH(priv, pub_a), pub_a, pub_b])
+    raw_secret = DH(priv, pub_a)
+    return HASH([SHARED_SECRET,
+                 raw_secret,
+                 encode_data(PROTOCOL_VERSION),
+                 pub_a,
+                 pub_b])
 
 """
 Diffie-Hellman function
@@ -273,19 +279,10 @@ def KDF(k, inputs):
     return MAC(k, m)
 
 """
-Generate a record.
-"""
-def gen_record(record_type, data, protocol_version=PROTOCOL_VERSION):
-	header = pack(">B", PROTOCOL_VERSION)
-	header += pack(">B", record_type)
-	header += pack(">H", len(data))
-	return header + data
-
-"""
 This will generate a confirmation blob to ensure the peer received the
 correct public key.
 
-:param ss: Shared secret
+:param ss: Shared secret (aka cooked_secret)
 :type ss: bytes
 :param q_a: Alice's scan payload
 :type q_a: bytes
@@ -299,9 +296,9 @@ correct public key.
 :rtype: bytes
 """
 def gen_confirmation_alice(ss, q_a, pub_a, q_b, pub_b):
-	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
+	confirmation_key = KDF(ss, [CONFIRMATION_KEY])
 	return KDF(confirmation_key,
-                   [b"CONFIRMATION_MAC", q_a, pub_a, q_b, pub_b])
+                   [CONFIRMATION_MAC, q_a, pub_a, q_b, pub_b])
 
 """
 This will generate a confirmation blob to ensure the peer received the
@@ -321,6 +318,6 @@ correct public key.
 :rtype: bytes
 """
 def gen_confirmation_bob(ss, q_a, pub_a, q_b, pub_b):
-	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
+	confirmation_key = KDF(ss, [CONFIRMATION_KEY])
 	return KDF(confirmation_key,
-                   [b"CONFIRMATION_MAC", q_b, pub_b, q_a, pub_a])
+                   [CONFIRMATION_MAC, q_b, pub_b, q_a, pub_a])

@@ -10,18 +10,16 @@ from base64 import b64encode, b64decode
 from bdf import encode_data, extract_data, bind_to_lan, open_connection, \
         recv_record, send_record
 from binascii import hexlify
-from bqp import PROTOCOL_VERSION, TRANSPORT_ID_BLUETOOTH, TRANSPORT_ID_LAN, \
-        RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, KDF, \
-        obtain_wifi_info, calculate_shared_secret_alice, calculate_shared_secret_bob, \
-        str_to_ip, str_to_bt, gen_keypair, create_commitment, gen_scan_payload, \
-        gen_confirmation_alice, gen_confirmation_bob, read_keys, save_keys
+from bqp import KDF, obtain_wifi_info, calculate_shared_secret_alice, \
+        calculate_shared_secret_bob, gen_keypair, create_commitment, \
+        gen_scan_payload, gen_confirmation_alice, gen_confirmation_bob, \
+        read_keys, save_keys
+from constants import RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT
 from log_helper import setup_logging
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from sys import stdin
 
 try:
-    from pure25519.ed25519_oop import create_keypair
-    from blake256.blake256 import blake_hash  # Blake2 wasn't added to hashlib in Python 3.4.3
     from pyqrcode import create
     import png  # Used by pyqrcode to output image
 except ImportError as e:
@@ -81,7 +79,7 @@ def recv_key_from_lan(conn):
     :param conn: Connection to peer
     :type conn: `class:Socket`
     :returns: public key
-    :rtype: binary string?
+    :rtype: binary string
     """
     record = recv_record(conn)
     if record[1] == RECORD_TYPE_KEY:
@@ -180,6 +178,6 @@ if __name__ == "__main__":
                                          pub_a,
                                          wire_encoded_payload,
                                          pub.to_bytes()))
-    master_key = KDF(shared_secret, [b"MASTER_KEY"])
+    master_key = KDF(shared_secret, [b"org.briarproject.bramble.keyagreement/MASTER_KEY"])
     shared_secret = None
     info("master_key = %s" % hexlify(master_key).decode())
