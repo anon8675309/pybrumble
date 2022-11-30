@@ -1,0 +1,4 @@
+blake256
+pure25519
+pypng
+pyqrcode
