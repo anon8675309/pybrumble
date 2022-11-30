@@ -140,6 +140,8 @@ the bdf specifications, base64 encoded and then put in a QR code for exchange.
             and separated by a colon (e.g. "192.168.0.99:7331"), or None if
             LAN is not supported
 :type lan_addr_port: string
+:returns: The data to encode and jam into the QR code
+:rtype: list
 """
 def gen_scan_payload(commitment, bluetooth_addr=None, lan_addr_port=None):
 	scan_payload = [PROTOCOL_VERSION, commitment]
@@ -298,8 +300,8 @@ correct public key.
 """
 def gen_confirmation_alice(ss, q_a, pub_a, q_b, pub_b):
 	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
-	return KDF(confirmation_key, [b"CONFIRMATION_MAC",
-		q_a, pub_a, q_b, pub_b])
+	return KDF(confirmation_key,
+                   [b"CONFIRMATION_MAC", q_a, pub_a, q_b, pub_b])
 
 """
 This will generate a confirmation blob to ensure the peer received the
@@ -320,5 +322,5 @@ correct public key.
 """
 def gen_confirmation_bob(ss, q_a, pub_a, q_b, pub_b):
 	confirmation_key = KDF(ss, [b"CONFIRMATION_KEY"])
-	return KDF(confirmation_key, [b"CONFIRMATION_MAC",
-		q_b, pub_b, q_a, pub_a])
+	return KDF(confirmation_key,
+                   [b"CONFIRMATION_MAC", q_b, pub_b, q_a, pub_a])
