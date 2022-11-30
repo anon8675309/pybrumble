@@ -6,7 +6,7 @@ from log_helper import setup_logging
 from sys import stdout
 
 if __name__ == "__main__":
-    parser = ArgumentParser(description='Decodes one item from a stream and displays it')
+    parser = ArgumentParser(description='Encodes one item from a stream and displays it')
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-v", "--verbose", action="count", help=('Verbose output (for debugging issues)'))
     group.add_argument("-q", "--quiet", action="count", help=('Quiet down the output'))

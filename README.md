@@ -53,7 +53,7 @@ demonstrate how the system would work.
 
 ## Section 4.3 Eratta
 confirm_a and confirm_b both use keyed MACs and the key is "CONFIRMATION_MAC".
-The "CONFIRMATION_KEY" can be seen on line 35, and thd "CONFIRMATION_MAC" on line 49 of:
+The "CONFIRMATION_KEY" can be seen on line 35, and the "CONFIRMATION_MAC" on line 49 of:
 ./bramble-core/src/main/java/org/briarproject/bramble/crypto/KeyAgreementCryptoImpl.java
 
 # Bramble Transport Protocol
