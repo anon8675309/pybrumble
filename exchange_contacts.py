@@ -66,15 +66,15 @@ def write_barcode(pub, bluetooth, lan):
     :type bluetooth: boolean
     :param lan: true if LAN is an available transport
     :type lan: boolean
-    :returns: QR code that the other peer should scan
-    :rtype: ?
+    :returns: commitment, payload, QR code that the other peer should scan
+    :rtype: three element tuple of: bytes, bytes and :class:`QRCode` object
     """
     commitment = create_commitment(pub.to_bytes())
     my_scan_payload = gen_scan_payload(commitment, bluetooth, lan)
-    b64_encoded_payload = b64_encode(encode_data(my_scan_payload))
+    b64_encoded_payload = b64encode(encode_data(my_scan_payload))
 
     info(b64_encoded_payload.decode())
-    return create(b64_encoded_payload)
+    return (commitment, my_scan_payload, create(b64_encoded_payload))
 
 def recv_key_from_lan(conn):
     """
@@ -110,13 +110,14 @@ if __name__ == "__main__":
         debug("Saving keys to disk...")
         save_keys(priv, pub, args.private_key_file, args.public_key_file)
 
-    qrcode = write_barcode(pub, args.bluetooth, args.lan)
+    commitment, my_scan_payload, qrcode = write_barcode(pub, args.bluetooth, args.lan)
     qrcode.png(args.output, scale=8)
 
     # Read in the other person's scan_payload from stdin
     binary_other_scan_payload = b64decode(stdin.readline())
     other_scan_payload, reamining_data = extract_data(binary_other_scan_payload)
     info(repr(other_scan_payload))
+    wire_encoded_payload = encode_data(my_scan_payload)
 
     # Now we need to make sure we're bound on the IP/port we said we'd be listening on
     ip, port = args.lan.split(":")
@@ -136,12 +137,21 @@ if __name__ == "__main__":
         shared_secret = calculate_shared_secret_alice(priv, pub.to_bytes(), pub_b)
         debug("shared secret = %s" % shared_secret)
         # Alice sends her confirmation code, and then receives and checks Bob's
-        send_record(conn, RECORD_TYPE_CONFIRM, gen_confirmation_alice(shared_secret,
-                wire_encoded_payload, pub.to_bytes(), binary_other_scan_payload, pub_b))
+        send_record(conn,
+                    RECORD_TYPE_CONFIRM,
+                    gen_confirmation_alice(shared_secret,
+                                           wire_encoded_payload,
+                                           pub.to_bytes(),
+                                           binary_other_scan_payload,
+                                           pub_b)
+                   )
         record = recv_record(conn)
         if record[1] == RECORD_TYPE_CONFIRM:
             generated_confirmation = gen_confirmation_bob(shared_secret,
-                wire_encoded_payload, pub.to_bytes(), binary_other_scan_payload, pub_b)
+                                                          wire_encoded_payload,
+                                                          pub.to_bytes(),
+                                                          binary_other_scan_payload,
+                                                          pub_b)
             if record[2] != generated_confirmation:
                 send_record(conn, RECORD_TYPE_ABORT, b"")
                 raise Exception("Confirmation record did not match expeced value!")
@@ -156,12 +166,20 @@ if __name__ == "__main__":
         record = recv_record(conn)
         if record[1] == RECORD_TYPE_CONFIRM:
             generated_confirmation = gen_confirmation_alice(shared_secret,
-                binary_other_scan_payload, pub_a, wire_encoded_payload, pub.to_bytes())
+                                                            binary_other_scan_payload,
+                                                            pub_a,
+                                                            wire_encoded_payload,
+                                                            pub.to_bytes())
             if record[2] != generated_confirmation:
                 send_record(conn, RECORD_TYPE_ABORT, b"")
                 raise Exception("Confirmation record did not match expeced value!")
-        send_record(conn, RECORD_TYPE_CONFIRM, gen_confirmation_bob(shared_secret,
-                binary_other_scan_payload, pub_a, wire_encoded_payload, pub.to_bytes(), ))
+        send_record(conn,
+                    RECORD_TYPE_CONFIRM,
+                    gen_confirmation_bob(shared_secret,
+                                         binary_other_scan_payload,
+                                         pub_a,
+                                         wire_encoded_payload,
+                                         pub.to_bytes()))
     master_key = KDF(shared_secret, [b"MASTER_KEY"])
     shared_secret = None
     info("master_key = %s" % hexlify(master_key).decode())
