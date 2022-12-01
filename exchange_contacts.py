@@ -98,23 +98,6 @@ def recv_key_from_lan(conn, other_scan_payload):
         raise Exception("Unexpected record type received: {}".format(record[1]))
     return pub
 
-def get_keys():
-    """
-    Generates ephemeral keys or reads them from disk if they're already present.
-    :returns: Keypair (private, public)
-    :rtype: two element tuple of bytes
-    """
-    try:
-        debug("Attempting to read keys from disk...")
-        priv, pub = read_keys(args.private_key_file, args.public_key_file)
-        debug("Read keys from disk.  Pubkey = %s" % hexlify(pub.vk_s))
-    except:
-        debug("Unable to read keys from disk, generating keys...")
-        priv, pub = gen_keypair()
-        debug("Saving keys to disk...")
-        save_keys(priv, pub, args.private_key_file, args.public_key_file)
-    return priv, pub
-
 def connect_to_peer(scan_payload):
     """
     Connect to the peer obtained from the scan payload. This includes a few
@@ -140,12 +123,13 @@ def connect_to_peer(scan_payload):
         raise Exception("Unable to connect to peer")
     return conn
 
+
 if __name__ == "__main__":
     parser = get_arg_parser()
     args = parser.parse_args()
     setup_logging(args)
 
-    priv, pub = get_keys()  # 2.1 key generation
+    priv, pub = gen_keypair()  # 2.1 key generation
     commitment = create_commitment(pub.to_bytes())
 
     # QR code scan payload
@@ -228,5 +212,5 @@ if __name__ == "__main__":
         f.write(master_key)
         info("master.key written to disk for the next step")
     with open("role", "w") as f:
-        f.write(("bob", "alice")[i_am_alice])
+        f.write(("bob\n", "alice\n")[i_am_alice])
         info("role written to disk for the next step")
