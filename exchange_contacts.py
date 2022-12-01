@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-This program will generate an ephemeral keypair, as described in section 2 of the BQP specification.
+This program will generate an ephemeral keypair, as described in section 2 of
+the BQP specification in order to get a shared secret key.
 
 Example usage:
-./exchange_contacts.py
+./exchange_contacts.py -l 127.0.0.1:9999
 """
 from argparse import ArgumentParser
 from base64 import b64encode, b64decode
@@ -71,7 +72,7 @@ def write_barcode(pub, bluetooth, lan):
     my_scan_payload = gen_scan_payload(commitment, bluetooth, lan)
     b64_encoded_payload = b64encode(encode_data(my_scan_payload))
 
-    info(b64_encoded_payload.decode())
+    info("qr code payload = %s" % b64_encoded_payload.decode())
     return (commitment, my_scan_payload, create(b64_encoded_payload))
 
 def recv_key_from_lan(conn):
@@ -180,4 +181,9 @@ if __name__ == "__main__":
                                          pub.to_bytes()))
     master_key = KDF(shared_secret, [b"org.briarproject.bramble.keyagreement/MASTER_KEY"])
     shared_secret = None
-    info("master_key = %s" % hexlify(master_key).decode())
+    with open("master.key", "wb") as f:
+        f.write(master_key)
+        info("master.key written to disk for the next step")
+    with open("role", "w") as f:
+        f.write(("bob", "alice")[i_am_alice])
+        info("role written to disk for the next step")
