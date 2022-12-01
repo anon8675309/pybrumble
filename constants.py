@@ -1,6 +1,7 @@
 CONFIRMATION_KEY = b"org.briarproject.bramble.keyagreement/CONFIRMATION_KEY"
 CONFIRMATION_MAC = b"org.briarproject.bramble.keyagreement/CONFIRMATION_MAC"
 SHARED_SECRET = b"org.briarproject.bramble.keyagreement/SHARED_SECRET"
+MASTER_KEY = b"org.briarproject.bramble.keyagreement/MASTER_KEY"
 PROTOCOL_VERSION = 2;
 COMMIT_LENGTH = 16;
 TRANSPORT_ID_BLUETOOTH = 0;

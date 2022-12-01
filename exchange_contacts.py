@@ -15,10 +15,12 @@ from bqp import KDF, obtain_wifi_info, calculate_shared_secret_alice, \
         calculate_shared_secret_bob, gen_keypair, create_commitment, \
         gen_scan_payload, gen_confirmation_alice, gen_confirmation_bob, \
         read_keys, save_keys
-from constants import RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT
+from constants import RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, \
+                      MASTER_KEY
 from log_helper import setup_logging
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from sys import stdin
+from time import sleep
 
 try:
     from pyqrcode import create
@@ -38,7 +40,7 @@ def get_arg_parser():
     """
     Builds program arguments.
     :returns: Parser which will deal with command line arguments
-    :rtype: `class:ArgumentParser`
+    :rtype: :class:`ArgumentParser`
     """
     parser = ArgumentParser(description='Generates ephemerial keys (if they do not exist) and does a key exchange')
     parser.add_argument("--private-key-file", default=DEFAULT_PRIVATE_KEY_FILE,
@@ -56,29 +58,32 @@ def get_arg_parser():
     group.add_argument("-q", "--quiet", action="count", help=('Quiet down the output'))
     return parser
 
-def write_barcode(pub, bluetooth, lan):
+def write_barcode(commitment, bluetooth, lan):
     """
     Creates a QR code to be scanned from a public key and transport types.
-    :param pub: public key
-    :type pub: binary string
+    :param commitment: commitment for my peer to verify the keys are correct
+    :type commitment: binary string
     :param bluetooth: true if Bluetooth is an available transport
     :type bluetooth: boolean
     :param lan: true if LAN is an available transport
     :type lan: boolean
-    :returns: commitment, payload, QR code that the other peer should scan
-    :rtype: three element tuple of: bytes, bytes and :class:`QRCode` object
+    :returns: BDF encooded payload, QR code that the other peer should scan
+    :rtype: two element tuple of: bytes and :class:`QRCode` object
     """
-    commitment = create_commitment(pub.to_bytes())
-    my_scan_payload = gen_scan_payload(commitment, bluetooth, lan)
-    b64_encoded_payload = b64encode(encode_data(my_scan_payload))
+    payload_data = gen_scan_payload(commitment, bluetooth, lan)
+    debug("payload_data = %s" % repr(payload_data))
+    my_scan_payload = encode_data(payload_data)
+    b64_encoded_payload = b64encode(my_scan_payload)
 
     info("qr code payload = %s" % b64_encoded_payload.decode())
-    return (commitment, my_scan_payload, create(b64_encoded_payload))
+    return (my_scan_payload, create(b64_encoded_payload))
 
-def recv_key_from_lan(conn):
+def recv_key_from_lan(conn, other_scan_payload):
     """
     :param conn: Connection to peer
-    :type conn: `class:Socket`
+    :type conn: :class:`Socket`
+    :param other_scan_payload: decoded contents of the peer's QR code
+    :type other_scan_payload: list
     :returns: public key
     :rtype: binary string
     """
@@ -93,12 +98,12 @@ def recv_key_from_lan(conn):
         raise Exception("Unexpected record type received: {}".format(record[1]))
     return pub
 
-
-if __name__ == "__main__":
-    parser = get_arg_parser()
-    args = parser.parse_args()
-    setup_logging(args)
-
+def get_keys():
+    """
+    Generates ephemeral keys or reads them from disk if they're already present.
+    :returns: Keypair (private, public)
+    :rtype: two element tuple of bytes
+    """
     try:
         debug("Attempting to read keys from disk...")
         priv, pub = read_keys(args.private_key_file, args.public_key_file)
@@ -108,15 +113,49 @@ if __name__ == "__main__":
         priv, pub = gen_keypair()
         debug("Saving keys to disk...")
         save_keys(priv, pub, args.private_key_file, args.public_key_file)
+    return priv, pub
 
-    commitment, my_scan_payload, qrcode = write_barcode(pub, args.bluetooth, args.lan)
+def connect_to_peer(scan_payload):
+    """
+    Connect to the peer obtained from the scan payload. This includes a few
+    retries in case the peer has not yet started listening on the network. This
+    raises an exception if it can't connect to the peer after several attempts.
+    :param scan_payload: decoded scan payload from the peer's QR code
+    :type scan_payload: list
+    :returns: connection to the peer
+    :rtype: :class:`py:socket`
+    """
+    remote_ip, remote_port = obtain_wifi_info(scan_payload)
+    debug("Connecting to Bob on port %d" % remote_port)
+    conn = None
+    for i in range(0,4):
+        try:
+            conn = open_connection(remote_ip, remote_port)
+            info("Connected to Bob")
+            break
+        except ConnectionRefusedError as e:
+            info("Unable to connect to %s:%d, will try again shortly" % (remote_ip, remote_port))
+            sleep(15)
+    if conn == None:
+        raise Exception("Unable to connect to peer")
+    return conn
+
+if __name__ == "__main__":
+    parser = get_arg_parser()
+    args = parser.parse_args()
+    setup_logging(args)
+
+    priv, pub = get_keys()  # 2.1 key generation
+    commitment = create_commitment(pub.to_bytes())
+
+    # QR code scan payload
+    wire_encoded_payload, qrcode = write_barcode(commitment, args.bluetooth, args.lan)
     qrcode.png(args.output, scale=8)
 
     # Read in the other person's scan_payload from stdin
     binary_other_scan_payload = b64decode(stdin.readline())
     other_scan_payload, reamining_data = extract_data(binary_other_scan_payload)
-    info(repr(other_scan_payload))
-    wire_encoded_payload = encode_data(my_scan_payload)
+    debug("peer's QR scan payload = %s" % repr(other_scan_payload))
 
     # Now we need to make sure we're bound on the IP/port we said we'd be listening on
     ip, port = args.lan.split(":")
@@ -128,11 +167,9 @@ if __name__ == "__main__":
     # The next phase of the key exchange is done online, which is described in section 4 of the bqp spec
     if i_am_alice:
         s.close()  # Close my connection, I want to use Bob's connection
-        remote_ip, remote_port = obtain_wifi_info(other_scan_payload)
-        debug("Connecting to Bob on port %d" % remote_port)
-        conn = open_connection(remote_ip, remote_port)
+        conn = connect_to_peer(other_scan_payload)
         send_record(conn, RECORD_TYPE_KEY, pub.to_bytes())
-        pub_b = recv_key_from_lan(conn)
+        pub_b = recv_key_from_lan(conn, other_scan_payload)
         shared_secret = calculate_shared_secret_alice(priv, pub.to_bytes(), pub_b)
         debug("shared secret = %s" % shared_secret)
         # Alice sends her confirmation code, and then receives and checks Bob's
@@ -157,7 +194,7 @@ if __name__ == "__main__":
     else:
         debug("Waiting for Alice to connect to us on port %s..." % port)
         conn, remote_addr = s.accept()
-        pub_a = recv_key_from_lan(conn)
+        pub_a = recv_key_from_lan(conn, other_scan_payload)
         send_record(conn, RECORD_TYPE_KEY, pub.to_bytes())
         shared_secret = calculate_shared_secret_bob(priv, pub_a, pub.to_bytes())
         debug("shared secret = %s" % shared_secret)
@@ -179,8 +216,14 @@ if __name__ == "__main__":
                                          pub_a,
                                          wire_encoded_payload,
                                          pub.to_bytes()))
-    master_key = KDF(shared_secret, [b"org.briarproject.bramble.keyagreement/MASTER_KEY"])
-    shared_secret = None
+        pub_a = None  # We're done with Alice's public key, so we forget it now
+    master_key = KDF(shared_secret, [MASTER_KEY])
+
+    # Forget things so shared secret can not be re-derived
+    shared_secret = None    # forget the shared secret
+    priv, pub = None, None  # forget our ephemeral keys too
+    commitment = None       # and our commitment too
+
     with open("master.key", "wb") as f:
         f.write(master_key)
         info("master.key written to disk for the next step")

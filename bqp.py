@@ -81,9 +81,9 @@ from the seed).
 :param pub: Public key
 :type pub: `py:VerifyingKey`
 :param priv_file: Name of the file with the private key
-:type priv_file: string
+:type priv_file: binary string
 :param priv_file: Name of the file with the public key
-:type pub_file: string
+:type pub_file: binary string
 :returns: None
 :rtype: None
 """
