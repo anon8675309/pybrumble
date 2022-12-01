@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-from bdf import encode_data
+from bdf import encode_data, open_connection, send_record, recv_record
 from constants import PROTOCOL_VERSION, COMMIT_LENGTH, TRANSPORT_ID_BLUETOOTH, \
                       TRANSPORT_ID_LAN, CONFIRMATION_KEY, CONFIRMATION_MAC, \
-                      SHARED_SECRET
+                      RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, \
+                      MASTER_KEY, SHARED_SECRET
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from struct import pack
+from time import sleep
 try:
     from pure25519.basic import bytes_to_clamped_scalar
     from pure25519.dh import dh_finish
@@ -321,3 +323,131 @@ def gen_confirmation_bob(ss, q_a, pub_a, q_b, pub_b):
 	confirmation_key = KDF(ss, [CONFIRMATION_KEY])
 	return KDF(confirmation_key,
                    [CONFIRMATION_MAC, q_b, pub_b, q_a, pub_a])
+
+def connect_to_peer(scan_payload):
+    """
+    Connect to the peer obtained from the scan payload. This includes a few
+    retries in case the peer has not yet started listening on the network. This
+    raises an exception if it can't connect to the peer after several attempts.
+
+    :param scan_payload: decoded scan payload from the peer's QR code
+    :type scan_payload: list
+    :returns: connection to the peer
+    :rtype: :class:`py:socket`
+    """
+    remote_ip, remote_port = obtain_wifi_info(scan_payload)
+    debug("Connecting to Bob on port %d" % remote_port)
+    conn = None
+    for i in range(0,4):
+        try:
+            conn = open_connection(remote_ip, remote_port)
+            info("Connected to Bob")
+            break
+        except ConnectionRefusedError as e:
+            info("Unable to connect to %s:%d, will try again shortly" % (remote_ip, remote_port))
+            sleep(15)
+    if conn == None:
+        raise Exception("Unable to connect to peer")
+    return conn
+
+def recv_key_from_lan(conn, other_scan_payload):
+    """
+    :param conn: Connection to peer
+    :type conn: :class:`Socket`
+    :param other_scan_payload: decoded contents of the peer's QR code
+    :type other_scan_payload: list
+    :returns: public key
+    :rtype: binary string
+    """
+    record = recv_record(conn)
+    if record[1] == RECORD_TYPE_KEY:
+        pub = record[2]
+        # If the key doesn't match the commitment, we must abort
+        if other_scan_payload[1] != create_commitment(pub):
+            send_record(conn, RECORD_TYPE_ABORT, b"")
+            raise Exception("Public key did not match commitment!")
+    else:
+        raise Exception("Unexpected record type received: {}".format(record[1]))
+    return pub
+
+def establish_master_key(my_qr_payload, peer_qr_payload, priv, pub, s):
+    """
+    Takes the QR payload wiht our commitment and the QR payload with our peer's
+    commitment and does a key exchange using BQP to derive a master key.
+
+    :param my_qr_payload: The decoded version of our qr payload
+    :type my_qr_payload: list
+    :param peer_qr_payload: The decoded version of the peer's qr payload
+    :type peer_qr_payload: list
+    :param priv: Our ephemeral private key
+    :type priv: :class:`py:SigningKey`
+    :param pub: Our ephemeral public key
+    :type pub: :class:`py:VerifyingKey`
+    :param s: Socket that we are listening on
+    :type: :class:`py:Socket`
+    :returns: shared secret (master_key) and an indicator if this peer was alice
+    :rtype: two element tuple of bytes and bool
+    """
+    my_encoded_payload = encode_data(my_qr_payload)
+    peer_encoded_payload = encode_data(peer_qr_payload)
+
+    # Per section 3 of the BQP spec, we determine whether we are ALICE or BOB
+    i_am_alice = my_qr_payload[1] < peer_qr_payload[1]
+    info("I am %s" % ("Bob", "Alice")[i_am_alice])
+
+    # The next phase of the key exchange is done online, which is described in
+    # section 4 of the BQP spec
+    if i_am_alice:
+        s.close()  # Close my connection, I want to use Bob's connection
+        conn = connect_to_peer(peer_qr_payload)
+        send_record(conn, RECORD_TYPE_KEY, pub.to_bytes())
+        pub_b = recv_key_from_lan(conn, peer_qr_payload)
+        shared_secret = calculate_shared_secret_alice(priv, pub.to_bytes(), pub_b)
+        debug("shared secret = %s" % shared_secret)
+        # Alice sends her confirmation code, and then receives and checks Bob's
+        send_record(conn,
+                    RECORD_TYPE_CONFIRM,
+                    gen_confirmation_alice(shared_secret,
+                                           my_encoded_payload,
+                                           pub.to_bytes(),
+                                           peer_encoded_payload,
+                                           pub_b)
+                   )
+        record = recv_record(conn)
+        if record[1] == RECORD_TYPE_CONFIRM:
+            generated_confirmation = gen_confirmation_bob(shared_secret,
+                                                          my_encoded_payload,
+                                                          pub.to_bytes(),
+                                                          peer_encoded_payload,
+                                                          pub_b)
+            if record[2] != generated_confirmation:
+                send_record(conn, RECORD_TYPE_ABORT, b"")
+                raise Exception("Confirmation record did not match expeced value!")
+        pub_b = None  # We're done with Bob's public key, so we forget it now
+    else:
+        debug("Waiting for Alice to connect to us...")
+        conn, remote_addr = s.accept()
+        pub_a = recv_key_from_lan(conn, peer_qr_payload)
+        send_record(conn, RECORD_TYPE_KEY, pub.to_bytes())
+        shared_secret = calculate_shared_secret_bob(priv, pub_a, pub.to_bytes())
+        debug("shared secret = %s" % shared_secret)
+        # Bob receives Alice's confirmation, verifies it, then sends his own
+        record = recv_record(conn)
+        if record[1] == RECORD_TYPE_CONFIRM:
+            generated_confirmation = gen_confirmation_alice(shared_secret,
+                                                            peer_encoded_payload,
+                                                            pub_a,
+                                                            my_encoded_payload,
+                                                            pub.to_bytes())
+            if record[2] != generated_confirmation:
+                send_record(conn, RECORD_TYPE_ABORT, b"")
+                raise Exception("Confirmation record did not match expeced value!")
+        send_record(conn,
+                    RECORD_TYPE_CONFIRM,
+                    gen_confirmation_bob(shared_secret,
+                                         peer_encoded_payload,
+                                         pub_a,
+                                         my_encoded_payload,
+                                         pub.to_bytes()))
+        pub_a = None  # We're done with Alice's public key, so we forget it now
+    return KDF(shared_secret, [MASTER_KEY]), i_am_alice
