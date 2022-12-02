@@ -1,5 +1,4 @@
-blake256
-pure_salsa20
 pure25519
+pycryptodome
 pypng
 pyqrcode

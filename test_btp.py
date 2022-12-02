@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 from unittest import TestCase, main
 from btp import PRF, KDF, initial_keys, get_time_period, rotate_keys, \
-                handshake_mode, KEY_LEN, NONCE_LEN, AUTH_LEN, D, TCP_L
+                handshake_mode, KEY_LEN, NONCE_LEN, AUTH_LEN, D, TCP_L, \
+                calculate_tag, ENC, DEC
 from constants import TRANSPORT_ID_STRING_LAN
 
 class BtpTester(TestCase):
@@ -110,6 +111,33 @@ class BtpTester(TestCase):
         self.assertEqual(ohk, expected_ohk)
         self.assertEqual(itk, expected_itk)
         self.assertEqual(ihk, expected_ihk)
+
+    def test_calculate_tag_handshake_mode(self):
+        a_otk, a_ohk, a_itk, a_ihk = handshake_mode(b"\x00"*KEY_LEN, 1, TRANSPORT_ID_STRING_LAN, True)
+        b_otk, b_ohk, b_itk, b_ihk = handshake_mode(b"\x00"*KEY_LEN, 1, TRANSPORT_ID_STRING_LAN, False)
+        a0 = calculate_tag(a_otk, 0)
+        b0 = calculate_tag(b_itk, 0)
+        a1 = calculate_tag(a_otk, 1)
+        b1 = calculate_tag(b_itk, 1)
+        self.assertEqual(a0, b0)
+        self.assertEqual(a1, b1)
+
+    def test_ENC_DEC(self):
+        plaintext = "There's no place like home".encode()
+        key = b"\x80"*KEY_LEN
+        nonce = b"\x90"*NONCE_LEN
+        ciphertext_with_mac = ENC(key, nonce, plaintext)
+        result = DEC(key, nonce, ciphertext_with_mac)
+        self.assertNotEqual(plaintext, ciphertext_with_mac)
+        self.assertEqual(plaintext, result)
+        # encrypted with a different key should result in a different ciphertext
+        c2 = ENC(b"\x13"*KEY_LEN, nonce, plaintext)
+        self.assertNotEqual(ciphertext_with_mac, c2)
+        # and using the same key and a different nonce should also be different
+        c3 = ENC(key, b"\x37"*NONCE_LEN, plaintext)
+        self.assertNotEqual(ciphertext_with_mac, c3)
+        # and of course those should be different than each other
+        self.assertNotEqual(c2, c3)
 
 
 if __name__ == "__main__":
