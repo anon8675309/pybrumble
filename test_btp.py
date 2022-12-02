@@ -20,6 +20,14 @@ class BtpTester(TestCase):
         result = KDF(b"\x00"*KEY_LEN, [b"Hello", b" ", b"World!"])
         self.assertEqual(result, expected)
 
+    def test_initial_keys_match(self):
+        a_otk, a_ohk, a_itk, a_ihk = initial_keys(b"\x00"*KEY_LEN, TRANSPORT_ID_STRING_LAN, True)
+        b_otk, b_ohk, b_itk, b_ihk = initial_keys(b"\x00"*KEY_LEN, TRANSPORT_ID_STRING_LAN, False)
+        self.assertEqual(a_otk, b_itk)
+        self.assertEqual(a_ohk, b_ihk)
+        self.assertEqual(a_itk, b_otk)
+        self.assertEqual(a_ihk, b_ohk)
+
     def test_initial_keys_1(self):
         expected_otk = b'\xdd\xedo\xcd4\xa9\xc7#9\x85\x02f\xe5\xce\x9aw\xc8s\xc4\xd1<(\xb9\x17\xc9\xfa_\xa3j m\x90'
         expected_ohk = b'\xbb\xb8\xf4\xe5L8\t\xc5b\xc8\xdd\xcb\x08v\xd3\xe7\xdd~\xec,\x1f\xbeXj%\xaf\x931\x86\xca\xe6c'
@@ -41,6 +49,16 @@ class BtpTester(TestCase):
         self.assertEqual(ohk, expected_ohk)
         self.assertEqual(itk, expected_itk)
         self.assertEqual(ihk, expected_ihk)
+
+    def test_get_time_period_match(self):
+        result_1 = get_time_period(TRANSPORT_ID_STRING_LAN)
+        result_2 = get_time_period(TRANSPORT_ID_STRING_LAN)
+        # There is a small chance the second call will be in the next time
+        # period. We handle that edge case in this test.
+        if result_1 == result_2:
+            self.assertEqual(result_1, result_2)
+        else:
+            self.assertEqual(result_1, result_2-1)
 
     def test_get_time_period_1(self):
         expected = 0
@@ -69,6 +87,25 @@ class BtpTester(TestCase):
         expected_ihk = b'7\xce\x84\x04\x12\xd3n\xf1\x9a\xac\xa0VE\x02\x96\xe1\x94\xe3\xc5!1\xc4\x8b\xb4\xa4\xbf\xcb\xb9@T\x06\x96'
 
         otk, ohk, itk, ihk = rotate_keys(old_otk, old_ohk, old_itk, old_ihk, 31337)
+        self.assertEqual(otk, expected_otk)
+        self.assertEqual(ohk, expected_ohk)
+        self.assertEqual(itk, expected_itk)
+        self.assertEqual(ihk, expected_ihk)
+
+    def test_handshake_mode_match(self):
+        a_otk, a_ohk, a_itk, a_ihk = handshake_mode(b"\x00"*KEY_LEN, 1, TRANSPORT_ID_STRING_LAN, True)
+        b_otk, b_ohk, b_itk, b_ihk = handshake_mode(b"\x00"*KEY_LEN, 1, TRANSPORT_ID_STRING_LAN, False)
+        self.assertEqual(a_otk, b_itk)
+        self.assertEqual(a_ohk, b_ihk)
+        self.assertEqual(a_itk, b_otk)
+        self.assertEqual(a_ihk, b_ohk)
+
+    def test_handshake_mode_1_alice(self):
+        expected_otk = b'1\x0c\xd35\xd1\x16\xa9\x9dV\x1f\xc0\xfd\xf6k\xf3\x15\xea\xa7\x81\xa2cq5\xd1\xa3AY\xbbW\x83R6'
+        expected_ohk = b'\xdb\x92\x07\x05V\x86\x8ceRS\xac\x1a\xf6\x8d\xe1\xaf\xf1\xf6\x00N?!\x1c=P\xe3xr\xe6\x99\xa9\xa4'
+        expected_itk = b'\xab*\xee\x13N\xf2\x06\x85k\x8b\x92\x85\xdcF|\x9a\xab\xd0\\q\x13\x06\x08\xf5\xd54\x17\xe3\xee1\xe1y'
+        expected_ihk = b'\xea\xd7\xd8^\xc3\xf3\xb3^\xed\x81\xe8\x1e\xab`\xb2\xf8\'\xf3l\xda\x1d\xaf\x9a\xf86\xab"w\xec$1Q'
+        otk, ohk, itk, ihk = handshake_mode(b"\x00"*KEY_LEN, 1, TRANSPORT_ID_STRING_LAN, True)
         self.assertEqual(otk, expected_otk)
         self.assertEqual(ohk, expected_ohk)
         self.assertEqual(itk, expected_itk)
