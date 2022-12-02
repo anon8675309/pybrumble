@@ -3,7 +3,7 @@ from bdf import encode_data, open_connection, send_record, recv_record
 from constants import PROTOCOL_VERSION, COMMIT_LENGTH, TRANSPORT_ID_BLUETOOTH, \
                       TRANSPORT_ID_LAN, CONFIRMATION_KEY, CONFIRMATION_MAC, \
                       RECORD_TYPE_KEY, RECORD_TYPE_CONFIRM, RECORD_TYPE_ABORT, \
-                      MASTER_KEY, SHARED_SECRET
+                      MASTER_KEY, SHARED_SECRET, COMMIT
 from logging import debug, info, error, basicConfig, INFO, DEBUG
 from struct import pack
 from time import sleep
@@ -12,7 +12,7 @@ try:
     from pure25519.dh import dh_finish
     from pure25519.ed25519_oop import create_keypair, SigningKey, VerifyingKey
     from pure25519.eddsa import H as dhh
-    from blake256.blake256 import blake_hash  # Blake2 wasn't added to hashlib in Python 3.4.3
+    from blake256.blake256 import blake_hash as H # Blake2 wasn't added to hashlib in Python 3.4.3
 except ImportError as e:
     print("%s" % e)
     print("To install dependencies: pip3 install pure25519 blake256")
@@ -123,7 +123,7 @@ This function returns a commitment to a public key.
 """
 def create_commitment(pub):
 	# Commitment is defined as the first COMMIT_LENGTH bytes of the hash of COMMIT + pubkey
-	return blake_hash(b"org.briarproject.bramble.keyagreement/COMMIT" + pub)[0:COMMIT_LENGTH]
+	return H(COMMIT + pub)[0:COMMIT_LENGTH]
 
 """
 This will generate a scan payload which can then be encoded according to
@@ -224,17 +224,6 @@ Diffie-Hellman function
 """
 def DH(priv, pub):
     return dh_finish(_get_private_key_as_scalar(priv), pub)
-
-"""
-Hash function
-
-:param m: Message (data) to be hashed
-:type m: bytes
-:returns: Hash of data
-:rtype: bytes
-"""
-def H(m):
-    return blake_hash(m)
 
 """
 Multi-argument hash function.
@@ -384,7 +373,7 @@ def establish_master_key(my_qr_payload, peer_qr_payload, priv, pub, s):
     :param pub: Our ephemeral public key
     :type pub: :class:`py:VerifyingKey`
     :param s: Socket that we are listening on
-    :type: :class:`py:Socket`
+    :type s: :class:`py:Socket`
     :returns: shared secret (master_key) and an indicator if this peer was alice
     :rtype: two element tuple of bytes and bool
     """
@@ -450,4 +439,5 @@ def establish_master_key(my_qr_payload, peer_qr_payload, priv, pub, s):
                                          my_encoded_payload,
                                          pub.to_bytes()))
         pub_a = None  # We're done with Alice's public key, so we forget it now
+    conn.close()
     return KDF(shared_secret, [MASTER_KEY]), i_am_alice
