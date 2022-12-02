@@ -1,4 +1,5 @@
 blake256
+pure_salsa20
 pure25519
 pypng
 pyqrcode
